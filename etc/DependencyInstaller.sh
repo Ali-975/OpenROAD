@@ -58,14 +58,9 @@ _equivalenceDeps() {
 
 _installCommonDev() {
     lastDir="$(pwd)"
-    arch=$(uname -m)
     # tools versions
     osName="linux"
-    if [[ "${arch}" == "aarch64" ]]; then
-        cmakeChecksum="6a6af752af4b1eae175e1dd0459ec850"
-    else
-        cmakeChecksum="b8d86f8c5ee990ae03c486c3631cee05"
-    fi
+    cmakeChecksum="b8d86f8c5ee990ae03c486c3631cee05"
     cmakeVersionBig=3.24
     cmakeVersionSmall=${cmakeVersionBig}.2
     pcreVersion=10.42
@@ -91,10 +86,10 @@ _installCommonDev() {
     cmakeBin=${cmakePrefix}/bin/cmake
     if [[ ! -f ${cmakeBin} || -z $(${cmakeBin} --version | grep ${cmakeVersionBig}) ]]; then
         cd "${baseDir}"
-        wget https://cmake.org/files/v${cmakeVersionBig}/cmake-${cmakeVersionSmall}-${osName}-${arch}.sh
-        md5sum -c <(echo "${cmakeChecksum} cmake-${cmakeVersionSmall}-${osName}-${arch}.sh") || exit 1
-        chmod +x cmake-${cmakeVersionSmall}-${osName}-${arch}.sh
-        ./cmake-${cmakeVersionSmall}-${osName}-${arch}.sh --skip-license --prefix=${cmakePrefix}
+        wget https://cmake.org/files/v${cmakeVersionBig}/cmake-${cmakeVersionSmall}-${osName}-x86_64.sh
+        md5sum -c <(echo "${cmakeChecksum} cmake-${cmakeVersionSmall}-${osName}-x86_64.sh") || exit 1
+        chmod +x cmake-${cmakeVersionSmall}-${osName}-x86_64.sh
+        ./cmake-${cmakeVersionSmall}-${osName}-x86_64.sh --skip-license --prefix=${cmakePrefix}
     else
         echo "CMake already installed."
     fi
@@ -239,42 +234,23 @@ _installOrTools() {
     os=$1
     version=$2
     arch=$3
-    orToolsVersionBig=9.10
-    orToolsVersionSmall=${orToolsVersionBig}.4067
+    orToolsVersionBig=9.5
+    orToolsVersionSmall=${orToolsVersionBig}.2237
 
     rm -rf "${baseDir}"
     mkdir -p "${baseDir}"
     if [[ ! -z "${PREFIX}" ]]; then mkdir -p "${PREFIX}"; fi
     cd "${baseDir}"
 
+    orToolsFile=or-tools_${arch}_${os}-${version}_cpp_v${orToolsVersionSmall}.tar.gz
+    wget https://github.com/google/or-tools/releases/download/v${orToolsVersionBig}/${orToolsFile}
     orToolsPath=${PREFIX:-"/opt/or-tools"}
-    if [ "$(uname -m)" == "aarch64" ]; then
-        # Disable exit on error for 'find' command, as it might return non zero
-        set +euo pipefail
-        LIST=($(find / -type f -name "libortools.so*" 2>/dev/null))
-        # Bring back exit on error
-        set -euo pipefail
-        if [ ${#LIST[@]} -eq 0 ]; then
-            echo "OR-TOOLS NOT FOUND"
-            echo "Installing  OR-Tools for aarch64..."
-            git clone https://github.com/google/or-tools.git
-            cd or-tools
-            ${cmakePrefix}/bin/cmake -S. -Bbuild -DBUILD_DEPS:BOOL=ON -DCMAKE_INSTALL_PREFIX=${orToolsPath}
-            ${cmakePrefix}/bin/cmake --build build --config Release --target install -v
-        else
-            echo "OR-Tools is already installed"
-        fi
-    else
-        orToolsFile=or-tools_${arch}_${os}-${version}_cpp_v${orToolsVersionSmall}.tar.gz
-        wget https://github.com/google/or-tools/releases/download/v${orToolsVersionBig}/${orToolsFile}
-        orToolsPath=${PREFIX:-"/opt/or-tools"}
-        if command -v brew &> /dev/null; then
-            orToolsPath="$(brew --prefix or-tools)"
-        fi
-        mkdir -p ${orToolsPath}
-        tar --strip 1 --dir ${orToolsPath} -xf ${orToolsFile}
-        rm -rf ${baseDir}
+    if command -v brew &> /dev/null; then
+        orToolsPath="$(brew --prefix or-tools)"
     fi
+    mkdir -p ${orToolsPath}
+    tar --strip 1 --dir ${orToolsPath} -xf ${orToolsFile}
+    rm -rf ${baseDir}
 }
 
 _installUbuntuCleanUp() {
@@ -319,32 +295,28 @@ _installUbuntuPackages() {
         zlib1g-dev \
         ccache \
 
-    packages=()
-    # Chose Python version
-    if _versionCompare $1 -ge 24.04; then
-        packages+=("libpython3.12")
-    elif _versionCompare $1 -ge 22.10; then
-        packages+=("libpython3.11")
+    if _versionCompare $1 -ge 22.10; then
+        apt-get install -y --no-install-recommends \
+            libpython3.11 \
+            qt5-qmake \
+            qtbase5-dev \
+            qtbase5-dev-tools \
+            libqt5charts5-dev \
+            qtchooser
+    elif [[ $1 == 22.04 ]]; then
+        apt-get install -y --no-install-recommends \
+            libpython3.8 \
+            qt5-qmake \
+            qtbase5-dev \
+            qtbase5-dev-tools \
+            libqt5charts5-dev \
+            qtchooser
     else
-        packages+=("libpython3.8")
+        apt-get install -y --no-install-recommends \
+            libpython3.8 \
+            libqt5charts5-dev \
+            qt5-default
     fi
-
-    # Chose QT libraries
-    if _versionCompare $1 -ge 22.04; then
-        packages+=(
-            "qt5-qmake" \
-            "qtbase5-dev" \
-            "qtbase5-dev-tools" \
-            "libqt5charts5-dev" \
-            "qtchooser" \
-        )
-    else
-        packages+=(
-            "libqt5charts5-dev" \
-            "qt5-default" \
-        )
-    fi
-    apt-get install -y --no-install-recommends ${packages[@]}
 }
 
 _installRHELCleanUp() {
@@ -631,7 +603,7 @@ _installCI() {
 
     # Add the repository to Apt sources:
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
-        $(. /etc/os-release && echo "${VERSION_CODENAME}") stable" | \
+        $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
         tee /etc/apt/sources.list.d/docker.list > /dev/null
 
     apt-get -y update
@@ -673,7 +645,7 @@ Usage: $0
                                 #     with sudo or with root access.
        $0 -local
                                 # Installs common dependencies in
-                                #    "${HOME}/.local". Only used with
+                                #    "$HOME/.local". Only used with
                                 #    -common. This flag cannot be used with
                                 #    sudo or with root access.
        $0 -ci
@@ -805,12 +777,8 @@ EOF
         fi
         if [[ "${option}" == "common" || "${option}" == "all" ]]; then
             _installCommonDev
-            if _versionCompare ${version} -gt 24.04; then
-                version=24.04
-            elif _versionCompare ${version} -gt 22.04; then
-                version=22.04
-            else
-                version=20.04
+            if _versionCompare ${version} -gt 22.10; then
+                version=22.10
             fi
             _installOrTools "ubuntu" "${version}" "amd64"
         fi
