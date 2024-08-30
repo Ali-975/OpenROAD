@@ -1,3 +1,4 @@
+#define BOOST_TEST_MODULE TestGDSOut
 #include <iostream>
 #include <string>
 
