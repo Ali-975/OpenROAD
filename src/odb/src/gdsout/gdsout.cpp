@@ -55,443 +55,195 @@ GDSWriter::~GDSWriter()
   }
 }
 
-void GDSWriter::write_gds(dbGDSLib* lib, const std::string& filename)
+void GDSWriter::writeGDSFile(dbGDSLib* lib, const std::string& filename)
 {
   _lib = lib;
   _file.open(filename, std::ios::binary);
-  if (!_file) {
-    throw std::runtime_error("Could not open file");
+  if (!_file.is_open()) {
+    throw std::runtime_error("Unable to open file");
   }
-  writeLib();
-  if (_file.is_open()) {
-    _file.close();
-  }
+  writeLibrary();
+  _file.close();
   _lib = nullptr;
 }
 
-void GDSWriter::calcRecSize(record_t& r)
+void GDSWriter::calculateRecordSize(record_t& record)
 {
-  r.length = 4;
-  if (r.dataType == DataType::REAL_8) {
-    r.length += r.data64.size() * 8;
-  } else if (r.dataType == DataType::INT_4) {
-    r.length += r.data32.size() * 4;
-  } else if (r.dataType == DataType::INT_2) {
-    r.length += r.data16.size() * 2;
-  } else if (r.dataType == DataType::ASCII_STRING
-             || r.dataType == DataType::BIT_ARRAY) {
-    r.length += r.data8.size();
-  } else if (r.dataType == DataType::NO_DATA) {
-  } else {
-    throw std::runtime_error("Invalid data type");
+  record.length = 4;
+  switch (record.dataType) {
+    case DataType::REAL_8:
+      record.length += record.data64.size() * 8;
+      break;
+    case DataType::INT_4:
+      record.length += record.data32.size() * 4;
+      break;
+    case DataType::INT_2:
+      record.length += record.data16.size() * 2;
+      break;
+    case DataType::ASCII_STRING:
+    case DataType::BIT_ARRAY:
+      record.length += record.data8.size();
+      break;
+    case DataType::NO_DATA:
+      break;
+    default:
+      throw std::runtime_error("Invalid data type encountered");
   }
 }
 
-void GDSWriter::writeReal8(double real)
+void GDSWriter::writeReal8(double value)
 {
-  uint64_t value = htobe64(double_to_real8(real));
-  _file.write(reinterpret_cast<char*>(&value), sizeof(uint64_t));
+  uint64_t real8 = htobe64(double_to_real8(value));
+  _file.write(reinterpret_cast<char*>(&real8), sizeof(uint64_t));
 }
 
-void GDSWriter::writeInt32(int32_t i)
+void GDSWriter::writeInt32(int32_t value)
 {
-  int32_t value = htobe32(i);
-  _file.write(reinterpret_cast<char*>(&value), sizeof(int32_t));
+  int32_t network_order_value = htobe32(value);
+  _file.write(reinterpret_cast<char*>(&network_order_value), sizeof(int32_t));
 }
 
-void GDSWriter::writeInt16(int16_t i)
+void GDSWriter::writeInt16(int16_t value)
 {
-  int16_t value = htobe16(i);
-  _file.write(reinterpret_cast<char*>(&value), sizeof(int16_t));
+  int16_t network_order_value = htobe16(value);
+  _file.write(reinterpret_cast<char*>(&network_order_value), sizeof(int16_t));
 }
 
-void GDSWriter::writeInt8(int8_t i)
+void GDSWriter::writeInt8(int8_t value)
 {
-  _file.write(reinterpret_cast<char*>(&i), sizeof(int8_t));
+  _file.write(reinterpret_cast<char*>(&value), sizeof(int8_t));
 }
 
-void GDSWriter::writeRecord(record_t& r)
+void GDSWriter::writeRecord(record_t& record)
 {
-  calcRecSize(r);
-  writeInt16(r.length);
-  writeInt8(fromRecordType(r.type));
-  writeInt8(fromDataType(r.dataType));
+  calculateRecordSize(record);
+  writeInt16(record.length);
+  writeInt8(fromRecordType(record.type));
+  writeInt8(fromDataType(record.dataType));
 
-  if (r.dataType == DataType::REAL_8) {
-    for (auto& d : r.data64) {
-      writeReal8(d);
-    }
-  } else if (r.dataType == DataType::INT_4) {
-    for (auto& d : r.data32) {
-      writeInt32(d);
-    }
-  } else if (r.dataType == DataType::INT_2) {
-    for (auto& d : r.data16) {
-      writeInt16(d);
-    }
-  } else if (r.dataType == DataType::ASCII_STRING
-             || r.dataType == DataType::BIT_ARRAY) {
-    _file.write(r.data8.c_str(), r.data8.size());
+  switch (record.dataType) {
+    case DataType::REAL_8:
+      for (auto& data : record.data64) {
+        writeReal8(data);
+      }
+      break;
+    case DataType::INT_4:
+      for (auto& data : record.data32) {
+        writeInt32(data);
+      }
+      break;
+    case DataType::INT_2:
+      for (auto& data : record.data16) {
+        writeInt16(data);
+      }
+      break;
+    case DataType::ASCII_STRING:
+    case DataType::BIT_ARRAY:
+      _file.write(record.data8.c_str(), record.data8.size());
+      break;
+    default:
+      break;
   }
 }
 
-void GDSWriter::writeLib()
+void GDSWriter::writeLibrary()
 {
-  record_t rh;
-  rh.type = RecordType::HEADER;
-  rh.dataType = DataType::INT_2;
-  rh.data16 = {600};
-  writeRecord(rh);
+  record_t header_record;
+  header_record.type = RecordType::HEADER;
+  header_record.dataType = DataType::INT_2;
+  header_record.data16 = {600};
+  writeRecord(header_record);
 
-  record_t r;
-  r.type = RecordType::BGNLIB;
-  r.dataType = DataType::INT_2;
+  record_t lib_begin_record;
+  lib_begin_record.type = RecordType::BGNLIB;
+  lib_begin_record.dataType = DataType::INT_2;
+  
+  std::time_t current_time = std::time(nullptr);
+  std::tm* local_time = std::localtime(&current_time);
+  lib_begin_record.data16 = {static_cast<int16_t>(local_time->tm_year),
+                             static_cast<int16_t>(local_time->tm_mon),
+                             static_cast<int16_t>(local_time->tm_mday),
+                             static_cast<int16_t>(local_time->tm_hour),
+                             static_cast<int16_t>(local_time->tm_min),
+                             static_cast<int16_t>(local_time->tm_sec),
+                             static_cast<int16_t>(local_time->tm_year),
+                             static_cast<int16_t>(local_time->tm_mon),
+                             static_cast<int16_t>(local_time->tm_mday),
+                             static_cast<int16_t>(local_time->tm_hour),
+                             static_cast<int16_t>(local_time->tm_min),
+                             static_cast<int16_t>(local_time->tm_sec)};
+  writeRecord(lib_begin_record);
 
-  std::time_t now = std::time(nullptr);
-  std::tm* lt = std::localtime(&now);
-  r.data16 = {(int16_t) lt->tm_year,
-              (int16_t) lt->tm_mon,
-              (int16_t) lt->tm_mday,
-              (int16_t) lt->tm_hour,
-              (int16_t) lt->tm_min,
-              (int16_t) lt->tm_sec,
-              (int16_t) lt->tm_year,
-              (int16_t) lt->tm_mon,
-              (int16_t) lt->tm_mday,
-              (int16_t) lt->tm_hour,
-              (int16_t) lt->tm_min,
-              (int16_t) lt->tm_sec};
-  writeRecord(r);
+  record_t lib_name_record;
+  lib_name_record.type = RecordType::LIBNAME;
+  lib_name_record.dataType = DataType::ASCII_STRING;
+  lib_name_record.data8 = _lib->getLibname();
+  writeRecord(lib_name_record);
 
-  record_t r2;
-  r2.type = RecordType::LIBNAME;
-  r2.dataType = DataType::ASCII_STRING;
-  r2.data8 = _lib->getLibname();
-  writeRecord(r2);
-
-  record_t r3;
-
-  r3.type = RecordType::UNITS;
-  r3.dataType = DataType::REAL_8;
+  record_t units_record;
+  units_record.type = RecordType::UNITS;
+  units_record.dataType = DataType::REAL_8;
   auto units = _lib->getUnits();
-  r3.data64 = {units.first, units.second};
-  writeRecord(r3);
+  units_record.data64 = {units.first, units.second};
+  writeRecord(units_record);
 
-  auto structures = _lib->getGDSStructures();
-  for (auto s : structures) {
-    writeStruct(s);
+  for (auto structure : _lib->getGDSStructures()) {
+    writeStructure(structure);
   }
 
-  record_t r4;
-  r4.type = RecordType::ENDLIB;
-  r4.dataType = DataType::NO_DATA;
-  writeRecord(r4);
+  record_t end_lib_record;
+  end_lib_record.type = RecordType::ENDLIB;
+  end_lib_record.dataType = DataType::NO_DATA;
+  writeRecord(end_lib_record);
 }
 
-void GDSWriter::writeStruct(dbGDSStructure* str)
+void GDSWriter::writeStructure(dbGDSStructure* structure)
 {
-  record_t r;
-  r.type = RecordType::BGNSTR;
-  r.dataType = DataType::INT_2;
+  record_t struct_begin_record;
+  struct_begin_record.type = RecordType::BGNSTR;
+  struct_begin_record.dataType = DataType::INT_2;
+  
+  std::time_t current_time = std::time(nullptr);
+  std::tm* local_time = std::localtime(&current_time);
+  struct_begin_record.data16 = {static_cast<int16_t>(local_time->tm_year),
+                                static_cast<int16_t>(local_time->tm_mon),
+                                static_cast<int16_t>(local_time->tm_mday),
+                                static_cast<int16_t>(local_time->tm_hour),
+                                static_cast<int16_t>(local_time->tm_min),
+                                static_cast<int16_t>(local_time->tm_sec),
+                                static_cast<int16_t>(local_time->tm_year),
+                                static_cast<int16_t>(local_time->tm_mon),
+                                static_cast<int16_t>(local_time->tm_mday),
+                                static_cast<int16_t>(local_time->tm_hour),
+                                static_cast<int16_t>(local_time->tm_min),
+                                static_cast<int16_t>(local_time->tm_sec)};
+  writeRecord(struct_begin_record);
 
-  std::time_t now = std::time(nullptr);
-  std::tm* lt = std::localtime(&now);
-  r.data16 = {(int16_t) lt->tm_year,
-              (int16_t) lt->tm_mon,
-              (int16_t) lt->tm_mday,
-              (int16_t) lt->tm_hour,
-              (int16_t) lt->tm_min,
-              (int16_t) lt->tm_sec,
-              (int16_t) lt->tm_year,
-              (int16_t) lt->tm_mon,
-              (int16_t) lt->tm_mday,
-              (int16_t) lt->tm_hour,
-              (int16_t) lt->tm_min,
-              (int16_t) lt->tm_sec};
-  writeRecord(r);
+  record_t struct_name_record;
+  struct_name_record.type = RecordType::STRNAME;
+  struct_name_record.dataType = DataType::ASCII_STRING;
+  struct_name_record.data8 = structure->getName();
+  writeRecord(struct_name_record);
 
-  record_t r2;
-  r2.type = RecordType::STRNAME;
-  r2.dataType = DataType::ASCII_STRING;
-  r2.data8 = str->getName();
-  writeRecord(r2);
-
-  for (auto el : ((_dbGDSStructure*) str)->_elements) {
-    writeElement((dbGDSElement*) el);
+  for (auto element : ((_dbGDSStructure*)structure)->_elements) {
+    writeElement(static_cast<dbGDSElement*>(element));
   }
 
-  record_t r3;
-  r3.type = RecordType::ENDSTR;
-  r3.dataType = DataType::NO_DATA;
-  writeRecord(r3);
+  record_t end_struct_record;
+  end_struct_record.type = RecordType::ENDSTR;
+  end_struct_record.dataType = DataType::NO_DATA;
+  writeRecord(end_struct_record);
 }
 
-void GDSWriter::writeElement(dbGDSElement* el)
+void GDSWriter::writeElement(dbGDSElement* element)
 {
-  _dbGDSElement* _el = (_dbGDSElement*) el;
-  if (dynamic_cast<_dbGDSBoundary*>(_el) != nullptr) {
-    writeBoundary((dbGDSBoundary*) _el);
-  } else if (dynamic_cast<_dbGDSPath*>(_el) != nullptr) {
-    writePath((dbGDSPath*) _el);
-  } else if (dynamic_cast<_dbGDSSRef*>(_el) != nullptr) {
-    writeSRef((dbGDSSRef*) _el);
-  } else if (dynamic_cast<_dbGDSSRef*>(_el)) {
-    writeSRef((dbGDSSRef*) el);
-  } else if (dynamic_cast<_dbGDSText*>(_el)) {
-    writeText((dbGDSText*) el);
-  } else {
-    throw std::runtime_error("Invalid / Unsupported element type");
-  }
-
-  writePropAttr(el);
-  writeEndel();
-}
-
-void GDSWriter::writePropAttr(dbGDSElement* el)
-{
-  auto& props = el->getPropattr();
-  for (auto pair : props) {
-    record_t r;
-    r.type = RecordType::PROPATTR;
-    r.dataType = DataType::INT_2;
-    r.data16 = {pair.first};
-    writeRecord(r);
-
-    record_t r2;
-    r2.type = RecordType::PROPVALUE;
-    r2.dataType = DataType::ASCII_STRING;
-    r2.data8 = pair.second;
-    writeRecord(r2);
-  }
-}
-
-void GDSWriter::writeLayer(dbGDSElement* el)
-{
-  record_t r;
-  r.type = RecordType::LAYER;
-  r.dataType = DataType::INT_2;
-  r.data16 = {el->getLayer()};
-  writeRecord(r);
-}
-
-void GDSWriter::writeXY(dbGDSElement* el)
-{
-  record_t r;
-  r.type = RecordType::XY;
-  r.dataType = DataType::INT_4;
-  std::vector<odb::Point>& xy = el->getXY();
-  for (auto pt : xy) {
-    r.data32.push_back(pt.x());
-    r.data32.push_back(pt.y());
-  }
-  writeRecord(r);
-}
-
-void GDSWriter::writeDataType(dbGDSElement* el)
-{
-  record_t r;
-  r.type = RecordType::DATATYPE;
-  r.dataType = DataType::INT_2;
-  r.data16 = {el->getDatatype()};
-  writeRecord(r);
-}
-
-void GDSWriter::writeEndel()
-{
-  record_t r;
-  r.type = RecordType::ENDEL;
-  r.dataType = DataType::NO_DATA;
-  writeRecord(r);
-}
-
-void GDSWriter::writeBoundary(dbGDSBoundary* bnd)
-{
-  record_t r;
-  r.type = RecordType::BOUNDARY;
-  r.dataType = DataType::NO_DATA;
-  writeRecord(r);
-
-  writeLayer(bnd);
-  writeDataType(bnd);
-  writeXY(bnd);
-}
-
-void GDSWriter::writePath(dbGDSPath* path)
-{
-  record_t r;
-  r.type = RecordType::PATH;
-  r.dataType = DataType::NO_DATA;
-  writeRecord(r);
-
-  writeLayer(path);
-  writeDataType(path);
-
-  if (path->get_pathType() != 0) {
-    record_t r2;
-    r2.type = RecordType::PATHTYPE;
-    r2.dataType = DataType::INT_2;
-    r2.data16 = {path->get_pathType()};
-    writeRecord(r2);
-  }
-
-  if (path->getWidth() != 0) {
-    record_t r3;
-    r3.type = RecordType::WIDTH;
-    r3.dataType = DataType::INT_4;
-    r3.data32 = {path->getWidth()};
-    writeRecord(r3);
-  }
-
-  writeXY(path);
-}
-
-void GDSWriter::writeSRef(dbGDSSRef* sref)
-{
-  record_t r;
-  auto colrow = sref->get_colRow();
-  if (colrow.first == 1 && colrow.second == 1) {
-    r.type = RecordType::SREF;
-  } else {
-    r.type = RecordType::AREF;
-  }
-  r.type = RecordType::SREF;
-  r.dataType = DataType::NO_DATA;
-  writeRecord(r);
-
-  record_t r2;
-  r2.type = RecordType::SNAME;
-  r2.dataType = DataType::ASCII_STRING;
-  r2.data8 = sref->get_sName();
-  writeRecord(r2);
-
-  if (!sref->get_sTrans().identity()) {
-    writeSTrans(sref->get_sTrans());
-  }
-
-  if (colrow.first != 1 || colrow.second != 1) {
-    record_t r4;
-    r4.type = RecordType::COLROW;
-    r4.dataType = DataType::INT_2;
-    r4.data16 = {colrow.first, colrow.second};
-    writeRecord(r4);
-  }
-
-  writeXY(sref);
-}
-
-void GDSWriter::writeText(dbGDSText* text)
-{
-  record_t r;
-  r.type = RecordType::TEXT;
-  r.dataType = DataType::NO_DATA;
-  writeRecord(r);
-
-  writeLayer(text);
-
-  record_t r2;
-  r2.type = RecordType::TEXTTYPE;
-  r2.dataType = DataType::INT_2;
-  r2.data16 = {text->getDatatype()};
-  writeRecord(r2);
-
-  writeTextPres(text->getPresentation());
-
-  if (text->get_pathType() != 0) {
-    record_t r3;
-    r3.type = RecordType::PATHTYPE;
-    r3.dataType = DataType::INT_2;
-    r3.data16 = {text->get_pathType()};
-    writeRecord(r3);
-  }
-
-  if (text->getWidth() != 0) {
-    record_t r4;
-    r4.type = RecordType::WIDTH;
-    r4.dataType = DataType::INT_4;
-    r4.data32 = {text->getWidth()};
-    writeRecord(r4);
-  }
-
-  if (!text->get_sTrans().identity()) {
-    writeSTrans(text->get_sTrans());
-  }
-
-  writeXY(text);
-
-  record_t r5;
-  r5.type = RecordType::STRING;
-  r5.dataType = DataType::ASCII_STRING;
-  r5.data8 = text->getText();
-  writeRecord(r5);
-}
-
-void GDSWriter::writeBox(dbGDSBox* box)
-{
-  record_t r;
-  r.type = RecordType::BOX;
-  r.dataType = DataType::NO_DATA;
-  writeRecord(r);
-
-  writeLayer(box);
-
-  record_t r2;
-  r2.type = RecordType::BOXTYPE;
-  r2.dataType = DataType::INT_2;
-  r2.data16 = {box->getDatatype()};
-  writeRecord(r2);
-
-  writeXY(box);
-}
-
-void GDSWriter::writeNode(dbGDSNode* node)
-{
-  record_t r;
-  r.type = RecordType::NODE;
-  r.dataType = DataType::NO_DATA;
-  writeRecord(r);
-
-  writeLayer(node);
-  writeXY(node);
-}
-
-void GDSWriter::writeSTrans(const dbGDSSTrans& strans)
-{
-  record_t r;
-  r.type = RecordType::STRANS;
-  r.dataType = DataType::BIT_ARRAY;
-
-  char data0 = strans._flipX << 7;
-  char data1 = strans._absAngle << 2 | strans._absMag << 1;
-  r.data8 = {data0, data1};
-  writeRecord(r);
-
-  if (strans._mag != 1.0) {
-    record_t r2;
-    r2.type = RecordType::MAG;
-    r2.dataType = DataType::REAL_8;
-    r2.data64 = {strans._mag};
-    writeRecord(r2);
-  }
-
-  if (strans._angle != 0.0) {
-    record_t r3;
-    r3.type = RecordType::ANGLE;
-    r3.dataType = DataType::REAL_8;
-    r3.data64 = {strans._angle};
-    writeRecord(r3);
-  }
-}
-
-void GDSWriter::writeTextPres(const dbGDSTextPres& pres)
-{
-  record_t r;
-  r.type = RecordType::PRESENTATION;
-  r.dataType = DataType::BIT_ARRAY;
-  r.data8 = {0, 0};
-  r.data8[1] |= pres._fontNum << 4;
-  r.data8[1] |= pres._vPres << 2;
-  r.data8[1] |= pres._hPres;
-  writeRecord(r);
-}
-
-}  // namespace odb
+  _dbGDSElement* internal_element = static_cast<_dbGDSElement*>(element);
+  
+  if (dynamic_cast<_dbGDSBoundary*>(internal_element) != nullptr) {
+    writeBoundary(static_cast<dbGDSBoundary*>(internal_element));
+  } else if (dynamic_cast<_dbGDSPath*>(internal_element) != nullptr) {
+    writePath(static_cast<dbGDSPath*>(internal_element));
+  } else if (dynamic_cast<_dbGDSSRef*>(internal_element) != nullptr) {
+    writeSRef(static_cast<dbGDSSRef*>(internal_element));
+  } else if (dynamic_cast<_dbGDSText*>(internal_element) != nullptr) {
+    write
